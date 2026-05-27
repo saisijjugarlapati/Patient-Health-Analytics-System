@@ -1,0 +1,688 @@
+---
+title: "Exploratory Data Analysis Report"
+subtitle: "Task 2 — Stroke Risk Dataset"
+author: "Sai Sijju Reddy Garlapati | Student ID: 35064180"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  pdf_document:
+    keep_tex: false
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    fig_caption: true
+    fig_width: 7
+    fig_height: 4.5
+    latex_engine: xelatex
+    highlight: tango
+header-includes:
+  - \usepackage{booktabs}
+  - \usepackage{float}
+  - \usepackage{xcolor}
+  - \usepackage{fancyhdr}
+  - \usepackage{geometry}
+  - \geometry{margin=2.5cm}
+  - \pagestyle{fancy}
+  - \fancyhead[L]{\textit{Task 2 — EDA Report}}
+  - \fancyhead[R]{\thepage}
+  - \fancyfoot[C]{}
+  - \definecolor{teal}{HTML}{0D9488}
+  - \usepackage{amssymb}
+  - \usepackage{caption}
+  - \usepackage{pdflscape}
+  - \captionsetup[table]{skip=2pt}
+  - \setlength{\tabcolsep}{4pt}
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo    = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.align = "center",
+  fig.pos = "H",
+  comment   = "#>"
+)
+options(tinytex.verbose = FALSE)
+```
+
+\newpage
+# Introduction
+
+This report presents an Exploratory Data Analysis (EDA) of a patient stroke dataset (`data.csv`), containing health and lifestyle attributes used to assess stroke risk. The primary aim is to understand the dataset’s structure, identify data quality issues, summarise key features, and uncover relationships between variables through statistical analysis, visualisation, and correlation methods.
+
+The analysis focuses on identifying patterns and trends that may contribute to stroke risk prediction, with particular attention to variables such as age, body mass index (BMI), glucose levels, hypertension status, smoking behaviour, and physical activity levels.
+
+The key objectives of this report are to:
+
+- Assess and prepare a clean, analysis-ready dataset through data cleaning and preprocessing  
+- Summarise key descriptive statistics for both numerical and categorical variables  
+- Explore distributions and relationships using appropriate visualisation techniques  
+- Analyse correlations and trends between health indicators and stroke risk  
+- Interpret findings and highlight meaningful patterns, outliers, and potential risk factors  
+
+The expected outcomes of this analysis include:
+
+- A cleaned and pre-processed dataset ready for statistical analysis  
+- Descriptive statistical summaries for all relevant variables  
+- Visual exploration of distributions and relationships using multiple plot types  
+- Correlation and trend analysis between key health indicators and stroke risk  
+- Interpretation of insights, including identification of key risk factors and notable patterns  
+
+All analysis is conducted using R and presented in an RMarkdown report. The final document is rendered as a reproducible PDF output.
+
+\newpage
+# Data Import and Setup
+
+## Libraries
+
+The following R libraries are used to support data import, manipulation, visualisation, and reporting:
+
+```{r libraries}
+library(tidyverse)    # Data wrangling and visualisation (dplyr, ggplot2, readr, tidyr)
+library(psych)        # Descriptive statistics including skewness and kurtosis
+library(moments)      # Additional distribution shape measures (skewness, kurtosis)
+library(ggcorrplot)   # Correlation matrix visualisation
+library(GGally)       # Pairwise relationship plots (scatterplot matrix)
+library(scales)       # Axis formatting for plots
+library(RColorBrewer) # Colour palettes for visualisations
+library(knitr)        # Table formatting in RMarkdown
+library(kableExtra)   # Enhanced table styling for PDF output
+```
+
+## Load Dataset
+```{r load-data-part1, message=FALSE, warning=FALSE}
+df_raw <- read_csv("data.csv", show_col_types = FALSE)
+
+# Part 1 — first 8 columns
+kable(head(df_raw[, 1:8], 6),
+      caption = "First Six Rows — Part 1 (Columns 1–8)",
+      booktabs = TRUE,
+      linesep = "",
+      align = "l") %>%
+  kable_styling(
+    latex_options = c("HOLD_position", "scale_down"),
+    font_size = 9
+  )
+```
+```{r load-data-part2, message=FALSE, warning=FALSE}
+# Part 2 — columns 9 to 14
+kable(head(df_raw[, c(1, 9:14)], 6),
+      caption = "First Six Rows — Part 2 (Columns 9–14)",
+      booktabs = TRUE,
+      linesep = "",
+      align = "l") %>%
+  kable_styling(
+    latex_options = c("HOLD_position", "scale_down"),
+    font_size = 9
+  )
+```
+
+```{r load-data-part3, message=FALSE, warning=FALSE}
+# Part 3 — columns 15 to 21
+kable(head(df_raw[, c(1, 15:21)], 6),
+      caption = "First Six Rows — Part 3 (Columns 15–21)",
+      booktabs = TRUE,
+      linesep = "",
+      align = "l") %>%
+  kable_styling(
+    latex_options = c("HOLD_position", "scale_down"),
+    font_size = 9
+  )
+```
+
+## Dataset Dimensions and Structure
+```{r structure}
+
+# 1. Dataset Dimensions
+kable(
+  data.frame(
+    Metric = c("Rows", "Columns"),
+    Value = c(nrow(df_raw), ncol(df_raw))
+  ),
+  caption = "Dataset Dimensions"
+) %>%
+  kable_styling(latex_options = c("striped", "hold_position"),
+                font_size = 11)
+
+# 2. Variables and Data Types (ONLY 2 columns)
+
+kable(
+  tibble(
+    Variable = colnames(df_raw),
+    Data_Type = vapply(df_raw, function(x) class(x)[1], character(1))
+  ),
+  caption = "Dataset Structure (Variables and Types)"
+) %>%
+  kable_styling(
+    latex_options = c("striped", "HOLD_position"),
+    font_size = 10
+  )
+```
+
+The dataset contains `r nrow(df_raw)` observations and `r ncol(df_raw)` variables. The Dataset Structure provides an overview of the variable types, which are examined and refined during the data cleaning stage.
+
+# Data Cleaning and Preparation
+## Missing Values
+
+Missing values are assessed across all variables to determine their extent and potential impact on analysis.
+
+```{r}
+missing_df <- df_raw %>%
+  summarise(across(everything(), ~ sum(is.na(.)))) %>%
+  pivot_longer(everything(),
+               names_to = "Variable",
+               values_to = "Missing_Count") %>%
+  mutate(Missing_Pct = round(Missing_Count / nrow(df_raw) * 100, 2)) %>%
+  arrange(desc(Missing_Count))
+
+kable(missing_df,
+      caption = "Missing Values per Variable",
+      booktabs = TRUE,
+      col.names = c("Variable", "Missing Count", "Missing (%)")) %>%
+  kable_styling(latex_options = c("striped", "HOLD_position"))
+
+```
+Missing values are handled using a consistent imputation strategy. Numerical variables are imputed using the median to reduce the influence of outliers, while categorical variables are imputed using the mode to preserve the most frequent category. This approach ensures that no observations are unnecessarily removed while maintaining dataset integrity for further analysis.
+
+```{r handle-missing}
+# Handle missing values:
+# - Numeric: median imputation
+# - Categorical: mode imputation
+
+df_clean <- df_raw %>%
+  mutate(across(where(is.numeric),
+                ~ ifelse(is.na(.), median(., na.rm = TRUE), .))) %>%
+  mutate(across(where(is.character),
+                ~ ifelse(is.na(.),
+                         names(which.max(table(.))),
+                         .)))
+
+cat("Missing values handled.\n")
+```
+
+## Duplicate Rows
+Duplicate records are identified and removed to prevent bias in statistical analysis.
+    
+```{r duplicates}
+
+n_dups <- sum(duplicated(df_clean))
+df_clean <- df_clean %>% distinct()
+
+cat("Duplicate rows removed:", n_dups, "\n")
+cat("Final dataset size:", nrow(df_clean), "rows\n")
+```
+
+## Data Type Conversion
+Data types are standardised to ensure consistency and analytical validity. Continuous variables are converted to numeric format, binary indicators are converted to factors, and categorical variables are encoded as factors. Physical activity is treated as an ordered factor.
+
+```{r type-conversion}
+
+df_clean <- df_clean %>%
+  mutate(
+    `Physical Activity` = trimws(`Physical Activity`),
+    `Income Level` = trimws(`Income Level`)
+  )
+
+df <- df_clean %>%
+  mutate(
+
+    # Numeric variables
+    Age = as.numeric(Age),
+    BMI = as.numeric(BMI),
+    `Average Glucose Level` = as.numeric(`Average Glucose Level`),
+    `Sleep Hours` = as.numeric(`Sleep Hours`),
+    `Stroke Risk Score` = as.numeric(`Stroke Risk Score`),
+
+    # Binary variables
+    Hypertension = factor(Hypertension, levels = c(0, 1), labels = c("No", "Yes")),
+    `Heart Disease` = factor(`Heart Disease`, levels = c(0, 1), labels = c("No", "Yes")),
+    `Ever Married` = factor(`Ever Married`, levels = c(0, 1), labels = c("No", "Yes")),
+    `Family History of Stroke` = factor(`Family History of Stroke`, levels = c(0, 1), 
+                                        labels = c("No", "Yes")),
+    `Stroke Occurrence` = factor(`Stroke Occurrence`, levels = c(0, 1), 
+                                 labels = c("No Stroke", "Stroke")),
+    `Stroke Occurrence` = factor(
+    `Stroke Occurrence`,
+    levels = c(0, 1), 
+    labels = c("No Stroke", "Stroke")),
+    
+    `Alcohol Consumption` = factor(`Alcohol Consumption`, levels = c(0, 1), labels = c("No", "Yes")),
+    `Chronic Stress` = factor(`Chronic Stress`, levels = c(0, 1), labels = c("No", "Yes")),
+
+    # Categorical variables (data-driven)
+    Gender = factor(Gender),
+    `Smoking Status` = factor(`Smoking Status`),
+    `Dietary Habits` = factor(`Dietary Habits`),
+    `Education Level` = factor(`Education Level`),
+    Region = factor(Region),
+    `Work Type` = factor(`Work Type`),
+    `Residence Type` = factor(`Residence Type`),
+
+    # Ordered variable
+    
+  `Physical Activity` = factor(`Physical Activity`, ordered = TRUE),
+  `Income Level` = factor(`Income Level`, ordered = TRUE),
+  
+  )
+
+glimpse(df)
+```
+# Descriptive Statistics
+## Numerical Variables
+```{r desc-stats-numeric}
+numeric_vars <- df %>%
+  select(where(is.numeric))
+
+desc_tbl <- psych::describe(numeric_vars) %>%
+  select(n, mean, sd, min, median, max, skew, kurtosis, se) %>%
+  round(3)
+
+kable(desc_tbl,
+      caption = "Descriptive Statistics — Numerical Variables",
+      booktabs = TRUE,
+      linesep  = "") %>%
+  kable_styling(
+    latex_options = c("striped", "hold_position", "scale_down"),
+    full_width    = FALSE,
+    font_size     = 9)
+```
+The table summarises key descriptive statistics for all numerical variables, including measures of central tendency, dispersion, and distribution shape. Skewness values indicate the degree of asymmetry in the data, where values outside the range of approximately -1 to +1 suggest notable skew. Kurtosis values provide insight into tail heaviness, with higher values indicating a greater likelihood of extreme observations.
+
+## Categorical Variables
+```{r desc-stats-categorical, results='asis', echo=FALSE, message=FALSE, warning=FALSE}
+
+# Select categorical variables
+cat_vars <- df %>% select(where(is.factor))
+
+# Loop through each categorical column
+for (col_name in names(cat_vars)) {
+
+  freq_tbl <- cat_vars %>%
+    count(.data[[col_name]], name = "Frequency") %>%
+    mutate(
+      Percentage = round(Frequency / sum(Frequency) * 100, 1)
+    ) %>%
+    arrange(desc(Frequency))
+
+  colnames(freq_tbl)[1] <- col_name
+
+  tbl <- kable(freq_tbl,
+    caption = paste("Frequency Table:", col_name),
+    booktabs = TRUE,
+    align = c("l", "r", "r"),
+    label = paste0("freq-", col_name)
+  )
+  
+  tbl %>%
+    kable_styling(
+      latex_options = c("striped", "HOLD_position"),
+      full_width = FALSE,
+      font_size = 10,
+      position = "center"
+    ) %>%
+    print()
+}
+
+```
+
+# Data Visualisation
+## Distribution Plots
+Histograms are used to examine the distribution, spread, and central tendency of continuous variables.
+
+The age distribution provides an overview of how patients are distributed across age groups, allowing identification of patterns such as skewness and concentration. This is particularly relevant for stroke analysis, as age is a key risk factor influencing stroke occurrence.
+
+```{r hist-age, fig.cap="Distribution of Patient Age", fig.height=3, fig.width=5}
+
+ggplot(df, aes(x = Age)) +
+  geom_histogram(bins = 40,
+                 fill = "#0D9488",
+                 colour = "white",
+                 alpha = 0.85) +
+  scale_x_continuous(breaks = seq(0, 100, 10)) +
+  scale_y_continuous(labels = scales::comma) +
+  labs(title = "Distribution of Patient Age",
+       x = "Age (years)",
+       y = "Frequency") +
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5))
+
+``` 
+```{r hist-bmi, fig.cap="Distribution of BMI", fig.height=3, fig.width=5}
+ggplot(df, aes(x = BMI)) +
+  geom_histogram(bins = 40,
+                 fill = "#6366F1",
+                 colour = "white",
+                 alpha = 0.85) +
+  
+  scale_x_continuous(
+    breaks = pretty(df$BMI, n = 8)
+  ) +
+  
+  scale_y_continuous(labels = scales::comma) +
+  
+  labs(title = "Distribution of BMI",
+       x = "Body Mass Index (BMI)",
+       y = "Frequency") +
+  
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5))
+```
+
+```{r hist-glucose, fig.cap="Distribution of Average Glucose Level", fig.height=3, fig.width=5}
+
+ggplot(df, aes(x = `Average Glucose Level`)) +
+  geom_histogram(bins = 40,
+                 fill = "#EC4899",
+                 colour = "white",
+                 alpha = 0.85) +
+  scale_x_continuous(
+    breaks = pretty(df$`Average Glucose Level`, n = 8)
+  ) +
+  scale_y_continuous(labels = scales::comma) +
+  labs(title = "Distribution of Average Glucose Level",
+       x     = "Average Glucose Level (mg/dL)",
+       y     = "Frequency") +
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5))
+
+```
+
+## Boxplots
+
+Boxplots reveal the median, interquartile range (IQR), and potential outliers for a variable across groups.
+
+```{r box-bmi-stroke, fig.cap="BMI by Stroke Occurrence", fig.height=3, fig.width=5}
+
+ggplot(df, aes(x = `Stroke Occurrence`, y = BMI, fill = `Stroke Occurrence`)) +
+  geom_boxplot(outlier.colour = "tomato", outlier.shape = 21,
+               outlier.size = 1.5, alpha = 0.80, width = 0.5) +
+  stat_summary(fun = mean, geom = "point", shape = 18,
+               size = 3, fill = "white", colour = "black") +
+  scale_fill_manual(values = c("No Stroke" = "#5EEAD4", "Stroke" = "#F87171")) +
+  labs(title   = "BMI Distribution by Stroke Occurrence",
+       x       = "Stroke Occurrence",
+       y       = "Body Mass Index (BMI)",
+       caption = expression(paste("\u25C6", " = group mean"))) +
+  
+  theme_minimal(base_size = 12) +
+  theme(plot.title      = element_text(face = "bold", hjust = 0.5),
+      legend.position = "none",
+      plot.caption    = element_text(hjust = 0, colour = "grey40", size = 11))
+```
+```{r box-glucose-smoking, fig.cap="Average Glucose Level by Smoking Status", fig.height=3.5, fig.width=5}
+ggplot(df, aes(x = `Smoking Status`, y = `Average Glucose Level`,
+               fill = `Smoking Status`)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.85, width = 0.5) +
+  stat_summary(fun = mean, geom = "point", shape = 18,
+               size = 3, fill = "white", colour = "black") +
+  scale_fill_brewer(palette = "Set2") +
+  scale_y_continuous(labels = scales::comma) +
+  labs(title   = "Average Glucose Level by Smoking Status",
+       x       = "Smoking Status",
+       y       = "Average Glucose Level (mg/dL)",
+       caption = expression(paste("\u25C6", " = group mean"))) +
+  theme_minimal(base_size = 12) +
+  theme(plot.title         = element_text(face = "bold", hjust = 0.5),
+        legend.position    = "none",
+        axis.text.x        = element_text(angle = 25, hjust = 1),
+        plot.caption       = element_text(hjust = 0, colour = "grey40"),
+        panel.grid.major.x = element_blank())
+```
+
+## Scatter Plots
+Scatter plots reveal the direction and strength of relationships between two continuous variables.
+```{r scatter-age-risk, fig.cap="Age vs. Stroke Risk Score", fig.height=4}
+
+ggplot(df, aes(x = Age, y = `Stroke Risk Score`,
+               colour = `Stroke Occurrence`)) +
+
+  geom_point(alpha = 0.35, size = 0.7) +
+
+  scale_colour_manual(values = c(
+    "No Stroke" = "#C8E6C9",
+    "Stroke"    = "#C62828"
+  )) +
+
+  geom_smooth(method = "lm", se = TRUE,
+              colour = "black", linewidth = 0.8,
+              aes(group = 1)) +
+
+  scale_x_continuous(breaks = seq(0, 100, 10)) +
+
+  labs(title = "Age vs Stroke Risk Score",
+       x = "Age (years)",
+       y = "Stroke Risk Score",
+       colour = "Outcome") +
+
+  guides(colour = guide_legend(
+    override.aes = list(size = 2.2, alpha = 1)
+  )) +
+
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.key.size = unit(0.7, "cm"),
+    plot.title = element_text(face = "bold", hjust = 0.5)
+  )
+```
+
+```{r scatter-bmi-glucose, fig.cap="BMI vs. Average Glucose Level", fig.height=3.5, fig.width=5}
+ggplot(df, aes(x = BMI, y = `Average Glucose Level`)) +
+  geom_point(alpha = 0.25, size = 0.5, color = "#0D9488") +
+  geom_smooth(method = "lm", se = TRUE, color = "black", linewidth = 0.8) +
+  labs(title = "BMI vs Glucose Level",
+       x = "BMI",
+       y = "Average Glucose Level (mg/dL)") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    axis.title = element_text(face = "bold")
+  )
+```
+## Bar Charts
+
+Bar charts compare counts or proportions across categorical groups.
+
+```{r bar-smoking, fig.cap="Distribution of Smoking Status", fig.height=3.5, fig.width=5.5}
+ggplot(df, aes(x = `Smoking Status`)) +
+  geom_bar(fill = "steelblue") +
+  geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.3, size = 3.5) +
+  labs(title = "Smoking Status Distribution",
+       x = "Smoking Status",
+       y = "Count") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+
+```{r bar-activity, fig.cap="Physical Activity Distribution", fig.height=3.5, fig.width=5.5}
+df %>%
+  count(`Physical Activity`) %>%
+  mutate(`Physical Activity` = fct_reorder(`Physical Activity`, n)) %>%
+  ggplot(aes(x = `Physical Activity`, y = n)) +
+  geom_col(fill = "#0D9488", width = 0.65) +
+  geom_text(aes(label = n), vjust = -0.3, size = 3.5) +
+  labs(title = "Physical Activity Distribution",
+       x = "Activity Level",
+       y = "Count") +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    axis.title = element_text(face = "bold"),
+    panel.grid.minor = element_blank()
+  )
+```
+
+```{r bar-region, fig.cap="Regional Distribution of Patients", fig.height=3.5, fig.width=5.5}
+
+df %>%
+  count(Region) %>%
+  mutate(Region = fct_reorder(Region, n)) %>%
+  ggplot(aes(x = Region, y = n)) +
+  geom_col(fill = "#334155", width = 0.6) +
+  geom_text(aes(label = n), vjust = -0.3, size = 3) +
+  labs(title = "Regional Distribution of Patients",
+       x = "Region",
+       y = "Count") +
+  theme_minimal(base_size = 10) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    panel.grid.minor = element_blank()
+  )
+```
+
+# Relationship and Trend Analysis
+## Correlation Heatmap
+```{r corr-heatmap, fig.cap="Pearson Correlation Heatmap — Numeric Features", fig.height=4}
+
+num_df <- df %>% select(where(is.numeric))
+
+corr_matrix <- cor(num_df, use = "complete.obs")
+
+ggcorrplot(corr_matrix,
+           type = "lower",
+           lab = TRUE)
+```
+The heatmap displays Pearson correlation coefficients for all numeric features. Cells are left blank where the correlation is not statistically significant (*p* > 0.05). Blue indicates a positive association; red indicates a negative association.
+
+*Interpretation: The correlation heatmap reveals that none of the numeric variables 
+show strong linear relationships with each other. All Pearson correlation coefficients 
+are close to zero, suggesting that Age, BMI, Average Glucose Level, Sleep Hours, and 
+Stroke Risk Score are largely independent of one another in this dataset. 
+The strongest observed correlation is between Average Glucose Level and Stroke Risk 
+Score (r = 0.00), which remains negligible. This absence of multicollinearity is 
+beneficial for predictive modelling, as it reduces redundancy among features.*
+
+## Features vs. Stroke Risk Score
+
+```{r risk-by-hypertension, fig.cap="Stroke Risk Score by Hypertension Status", fig.height=3, fig.width=5}
+ggplot(df, aes(x = Hypertension, y = `Stroke Risk Score`, fill = Hypertension)) +
+  geom_boxplot(outlier.colour = "tomato", outlier.shape = 21,
+               alpha = 0.75) +
+  stat_summary(fun = mean, geom = "point", shape = 18,
+               size = 3, fill = "white", colour = "black") +
+  scale_fill_manual(values = c("No" = "#5EEAD4", "Yes" = "#F87171")) +
+  labs(title   = "Stroke Risk Score by Hypertension Status",
+       x       = "Hypertension",
+       y       = "Stroke Risk Score",
+       fill    = NULL,
+       caption = expression(paste("\u25C6", " = group mean"))) +
+  theme_minimal(base_size = 12) +
+  theme(plot.title      = element_text(face = "bold", hjust = 0.5),
+        legend.position = "none",
+        plot.caption    = element_text(hjust = 0, colour = "grey40", size = 11))
+```
+
+*Interpretation: Hypertensive and non-hypertensive patients show virtually identical 
+median Stroke Risk Scores (both = 51) and near-equal means (No: 50.6, Yes: 50.4). 
+This suggests that hypertension alone does not strongly differentiate stroke risk 
+scores in this dataset, which may reflect that the risk score incorporates multiple 
+variables beyond hypertension status.*
+
+```{r risk-by-activity, fig.cap="Stroke Risk Score by Physical Activity", fig.height=3, fig.width=5}
+ggplot(df, aes(x = `Physical Activity`, y = `Stroke Risk Score`,
+               fill = `Physical Activity`)) +
+  geom_boxplot(alpha = 0.75, outlier.colour = "tomato", outlier.shape = 23) +
+  stat_summary(fun = mean, geom = "point", shape = 18,
+               size = 3, fill = "white", colour = "black") +
+  scale_fill_brewer(palette = "Pastel1") +
+  labs(title   = "Stroke Risk Score by Physical Activity",
+       x       = "Physical Activity",
+       y       = "Stroke Risk Score",
+       fill    = NULL,
+       caption = expression(paste("\u25C6", " = group mean"))) +
+  theme_minimal(base_size = 12) +
+  theme(plot.title      = element_text(face = "bold", hjust = 0.5),
+        legend.position = "none",
+        plot.caption    = element_text(hjust = 0, colour = "grey40", size = 11))
+```
+
+*Interpretation: Stroke Risk Scores are virtually identical across all physical 
+activity levels, with all groups sharing a median of 51 and means ranging narrowly 
+between 50.6 and 50.7. This suggests that physical activity level does not 
+meaningfully differentiate stroke risk scores in this dataset. The absence of a 
+declining trend from Sedentary to Active may indicate that the risk score is driven 
+by other clinical factors such as age, glucose level, or hypertension rather than 
+activity alone.*
+
+## Age vs. Average Glucose Level
+
+```{r scatter-age-glucose, fig.cap="Age vs. Average Glucose Level by Hypertension", fig.height=3.5, fig.width=5.5}
+ggplot(df, aes(x = Age, y = `Average Glucose Level`, colour = Hypertension)) +
+  geom_point(alpha = 0.3, size = 0.8) +
+  geom_smooth(method = "lm", se = TRUE, linewidth = 0.9) +
+  scale_colour_manual(values = c("No" = "#90CAF9", "Yes" = "#B71C1C")) +
+  labs(title  = "Age vs. Average Glucose Level (by Hypertension)",
+       x      = "Age (years)",
+       y      = "Average Glucose Level (mg/dL)",
+       colour = "Hypertension") +
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5))
+```
+
+*Interpretation: Average Glucose Level shows no meaningful increase with age, 
+and hypertensive and non-hypertensive patients have virtually identical mean 
+glucose levels (both ≈ 185 mg/dL). The regression lines for both groups are 
+nearly flat and overlapping, confirming no age-glucose trend and no differential 
+effect of hypertension on glucose levels in this dataset. This is consistent with 
+the synthetic nature of the data where variables appear independently distributed.*
+
+## BMI vs. Stroke Risk by Activity Level
+
+```{r scatter-bmi-risk-activity, fig.cap="BMI vs. Stroke Risk Score by Physical Activity", fig.height=3.5, fig.width=6}
+ggplot(df, aes(x = BMI, y = `Stroke Risk Score`,
+               colour = `Physical Activity`)) +
+  geom_point(alpha = 0.4, size = 1.2) +
+  geom_smooth(method = "lm", se = FALSE, linewidth = 0.8) +
+  scale_colour_brewer(palette = "RdYlGn", direction = -1) +
+  labs(title  = "BMI vs. Stroke Risk Score by Physical Activity",
+       x      = "BMI",
+       y      = "Stroke Risk Score",
+       colour = "Activity Level") +
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5))
+```
+
+*Interpretation: The scatter plot reveals no meaningful relationship between BMI 
+and Stroke Risk Score across any physical activity level. All four activity groups 
+show nearly identical mean BMI (≈ 30) and mean Stroke Risk Score (≈ 50.6), and 
+the regression lines are flat and overlapping. This indicates that neither BMI nor 
+physical activity level influences stroke risk score in this dataset, further 
+consistent with the synthetic and independently distributed nature of the variables.*
+
+# Insights and Interpretation
+
+Based on the visualisations and correlation analysis,
+the following findings emerge:
+
+**1. No strong predictors of stroke risk were identified.**
+All numeric variables show near-zero correlations with
+Stroke Risk Score, suggesting no single variable drives
+risk in this dataset.
+
+**2. Group differences are negligible.**
+Hypertension, physical activity, and smoking status show
+no meaningful difference in median Stroke Risk Score
+(all = 51).
+
+**3. BMI and glucose are uniformly distributed.**
+No meaningful differences exist across stroke occurrence
+or smoking groups.
+
+**4. Regional distribution is balanced.**
+Patient counts are evenly spread across East, North,
+South and West regions (≈ 43,000 each).
+
+**5. Dataset appears synthetically generated.**
+The absence of meaningful patterns or correlations
+strongly suggests this is simulated data, where variables
+are independently distributed by design.
+
+\newpage
+
+# Transparency Statement 
+
+| Category | Statement |
+|----------|-----------|
+| No AI | Artificial Intelligence (AI) has not been used for any part of the activity. AI is not used for any part of the activity. All aspects of the activity are human generated, created, edited, and developed. |
+
+*Report generated on `r format(Sys.time(), '%d %B %Y at %H:%M')` using R version `r R.version$major`.`r R.version$minor` and RMarkdown.*
+
+
